@@ -40,8 +40,8 @@ The entire process requires just running sudo ./master-build.sh, entering your R
 
 1. 📥 **Clone Repository**:
    ```bash
-   git clone https://github.com/pulsetek1/trunkrecorder-pi-builder.git
-   cd trunkrecorder-pi-builder
+   git clone https://github.com/pulsetek1/trunkrecorder-builder.git
+   cd trunkrecorder-builder
    ```
 
 2. ⚡ **Run Master Build**:
@@ -93,8 +93,8 @@ The system automatically detects your platform and provides tailored recommendat
 sudo apt update && sudo apt upgrade -y
 
 # Clone repository
-git clone https://github.com/pulsetek1/trunkrecorder-pi-builder.git
-cd trunkrecorder-pi-builder
+git clone https://github.com/pulsetek1/trunkrecorder-builder.git
+cd trunkrecorder-builder
 chmod +x *.sh
 ```
 

@@ -4,8 +4,8 @@
 
 ### 1️⃣ Clone & Setup
 ```bash
-git clone https://github.com/pulsetek1/trunkrecorder-pi-builder.git
-cd trunkrecorder-pi-builder
+git clone https://github.com/pulsetek1/trunkrecorder-builder.git
+cd trunkrecorder-builder
 sudo ./master-build.sh
 ```
 
@@ -136,8 +136,8 @@ sudo systemctl restart trunk-recorder
 
 ## 📞 Support
 
-- 🐛 **Issues**: [GitHub Issues](https://github.com/pulsetek1/trunkrecorder-pi-builder/issues)
-- 📚 **Docs**: [README.md](https://github.com/pulsetek1/trunkrecorder-pi-builder/blob/main/README.md)
+- 🐛 **Issues**: [GitHub Issues](https://github.com/pulsetek1/trunkrecorder-builder/issues)
+- 📚 **Docs**: [README.md](https://github.com/pulsetek1/trunkrecorder-builder/blob/main/README.md)
 - 👥 **Community**: RadioReference.com forums
 
 ---

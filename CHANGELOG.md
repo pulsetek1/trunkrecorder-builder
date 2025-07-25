@@ -31,7 +31,7 @@ All notable changes to the Trunk Recorder Master Build System will be documented
 ## [2.0.1] 🌟
 
 ### 🚀 Released
-- **🌐 GitHub Public Release**: Made repository public on GitHub at https://github.com/pulsetek1/trunkrecorder-pi-builder
+- **🌐 GitHub Public Release**: Made repository public on GitHub at https://github.com/pulsetek1/trunkrecorder-builder
 - **📚 Documentation Polish**: Enhanced README and DEPLOYMENT guides with icons and improved formatting
 - **🧹 Code Cleanup**: Removed legacy AACO-specific references for universal deployment
 
@@ -180,8 +180,8 @@ This project follows [Semantic Versioning](https://semver.org/):
 
 2. **🚀 Run Master Build**:
    ```bash
-   git clone https://github.com/pulsetek1/trunkrecorder-pi-builder.git
-   cd trunkrecorder-pi-builder
+   git clone https://github.com/pulsetek1/trunkrecorder-builder.git
+   cd trunkrecorder-builder
    sudo ./master-build.sh
    ```
 
