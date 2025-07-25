@@ -28,7 +28,7 @@ The entire process requires just running sudo ./master-build.sh, entering your R
 - 🥧 **Raspberry Pi 4** (4GB+ RAM recommended) or compatible ARM64/x86_64 system
 - 📻 **RTL-SDR Dongles**: 1-3 dongles depending on frequency span
 - 🌐 **Network Connection**: For RadioReference access and uploads
-- 💾 **Storage**: 32GB+ SD card/storage for recordings
+- 💾 **Storage**: 32GB+ SD card (recordings stored in RAM for SD protection)
 
 ## 💻 Software Requirements
 
@@ -163,10 +163,11 @@ sudo ./configure-rtlsdr.sh
 ├── talkgroup.csv              # Talkgroup definitions
 └── radioreference-creds       # Encrypted credentials
 
-/var/lib/trunk-recorder/
-└── recordings/                # Audio recordings
+/trunkrecorder/                # RAM Drive (tmpfs - 1GB)
+├── recordings/                # Audio recordings (RAM)
+└── logs/                      # Log files (RAM)
 
-/var/log/trunk-recorder/       # Log files
+/var/lib/trunk-recorder/       # Legacy location (unused)
 ```
 
 ## ⚙️ Configuration Files
@@ -213,7 +214,7 @@ sudo systemctl status radioreference-update.timer
 sudo /usr/local/bin/update-radioreference.sh
 
 # View update logs
-sudo tail -f /var/log/trunk-recorder/radioreference-update.log
+sudo tail -f /trunkrecorder/logs/radioreference-update.log
 ```
 
 ## 📊 Monitoring and Maintenance
@@ -232,21 +233,21 @@ sudo tail -f /var/log/trunk-recorder/radioreference-update.log
 
 3. 🎵 **Recording Activity**:
    ```bash
-   ls -la /var/lib/trunk-recorder/recordings/
+   ls -la /trunkrecorder/recordings/
    ```
 
 4. 📤 **Upload Status**: Check logs for upload confirmations/errors
 
 ### 📝 Log Locations
 
-- 📄 **Main Logs**: `/var/log/trunk-recorder/`
+- 📄 **Main Logs**: `/trunkrecorder/logs/` (RAM drive)
 - 🖥️ **System Logs**: `journalctl -u trunk-recorder`
-- 🔄 **Update Logs**: `/var/log/trunk-recorder/radioreference-update.log`
+- 🔄 **Update Logs**: `/trunkrecorder/logs/radioreference-update.log`
 
 ### 🤖 Automatic Maintenance
 
-- 🔄 **Log Rotation**: Configured via logrotate (7-day retention)
-- 🧹 **Recording Cleanup**: Automatic deletion after 14 days
+- 🔄 **RAM Cleanup**: Recordings deleted after 5 minutes, logs after 30 minutes
+- 🧹 **Automated Timer**: Cleanup runs every 2 minutes via systemd timer
 - 🔧 **System Updates**: Unattended upgrades enabled
 - 🌙 **Nightly Updates**: Automatic talkgroup refresh
 
@@ -441,6 +442,15 @@ sudo tar -czf trunk-recorder-backup.tar.gz \
 - **v1.2**: Enhanced upload service integration
 - **v1.3**: Improved time synchronization
 - **v1.4**: Production hardening and documentation
+- **v1.5**: SD Card Protection and Performance Improvements
+  - 💾 **Complete RAM Drive System**: All recordings and logs stored in RAM (1GB tmpfs at `/trunkrecorder`)
+  - 🛡️ **SD Card Longevity**: Zero write operations to SD card for recordings/logs
+  - 🧹 **Automatic Cleanup**: Recordings deleted after 5 minutes, logs after 30 minutes
+  - ⚖️ **Balanced Recorder Distribution**: Improved algorithm distributes 36 recorders evenly across RTL-SDR devices
+  - 🔧 **Smart Installation**: Setup script now prompts before rebuilding trunk-recorder binary
+  - 📊 **Enhanced Site Selection**: Multi-column display shows all available site information
+  - ⏱️ **Optimized Timeouts**: Reduced call timeout to 120 seconds for faster recorder availability
+  - 🔄 **Automated Cleanup Service**: Systemd timer runs every 2 minutes to manage RAM usage
 
 ## 📄 License
 
