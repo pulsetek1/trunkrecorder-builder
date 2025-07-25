@@ -410,7 +410,7 @@ def generate_config(system_info, shortname="system", upload_config=None):
                 "systems": [{
                     "shortName": upload_config['rdio']['shortname'],
                     "apiKey": upload_config['rdio']['api_key'],
-                    "systemId": 1
+                    "systemId": upload_config['rdio']['system_id']
                 }]
             })
         
@@ -459,6 +459,7 @@ def get_upload_config():
     existing_rdio_server = ''
     existing_rdio_key = ''
     existing_rdio_shortname = ''
+    existing_rdio_system_id = ''
     
     if existing_config:
         if 'systems' in existing_config and len(existing_config['systems']) > 0:
@@ -474,6 +475,7 @@ def get_upload_config():
                     if 'systems' in plugin and len(plugin['systems']) > 0:
                         existing_rdio_key = plugin['systems'][0].get('apiKey', '')
                         existing_rdio_shortname = plugin['systems'][0].get('shortName', '')
+                        existing_rdio_system_id = str(plugin['systems'][0].get('systemId', ''))
     
     # Configure Broadcastify
     while True:
@@ -546,6 +548,19 @@ def get_upload_config():
             upload_config['rdio']['shortname'] = name_input if name_input else existing_rdio_shortname
         else:
             upload_config['rdio']['shortname'] = input("System short name for RDIOScanner: ")
+        
+        # Get system ID for RDIOScanner
+        if existing_rdio_system_id:
+            system_id_input = input(f"RDIOScanner System ID [{existing_rdio_system_id}]: ").strip()
+            id_value = system_id_input if system_id_input else existing_rdio_system_id
+        else:
+            id_value = input("RDIOScanner System ID (numeric): ").strip()
+        
+        try:
+            upload_config['rdio']['system_id'] = int(id_value)
+        except ValueError:
+            print("   Error: System ID must be a number, using default 1")
+            upload_config['rdio']['system_id'] = 1
     
     return upload_config
 
