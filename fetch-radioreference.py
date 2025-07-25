@@ -23,7 +23,7 @@ import sys
 import argparse
 from bs4 import BeautifulSoup
 
-def calculate_recorders(device_index, center_freq, bandwidth, all_frequencies, control_channels):
+def calculate_recorders(device_index, center_freq, bandwidth, all_frequencies, control_channels, total_devices=3):
     """
     Calculate the optimal number of digital recorders for each RTL-SDR device based on
     the frequencies it can receive and the number of control channels in its range.
@@ -37,6 +37,7 @@ def calculate_recorders(device_index, center_freq, bandwidth, all_frequencies, c
         bandwidth (int): Bandwidth of the RTL-SDR device in Hz
         all_frequencies (list): All frequencies in the system in Hz
         control_channels (list): Control channel frequencies in Hz
+        total_devices (int): Total number of RTL-SDR devices
         
     Returns:
         int: Number of digital recorders to allocate to this device
@@ -53,21 +54,25 @@ def calculate_recorders(device_index, center_freq, bandwidth, all_frequencies, c
     freq_count = len(freqs_in_range)
     control_count = len(controls_in_range)
     
-    # Calculate recorders based on frequency density and control channels
-    # More control channels means more potential simultaneous calls
+    # Calculate total recorders needed (aim for 36 total across all devices)
+    total_recorders = 36
+    base_per_device = total_recorders // total_devices
+    remainder = total_recorders % total_devices
+    
+    # Distribute evenly with slight adjustment for control channels
     if control_count > 0:
-        # Device has control channels - needs more recorders
-        base_recorders = min(10, max(6, control_count * 3))
+        # Device has control channels - gets base + small bonus
+        recorders = base_per_device + min(2, control_count)
     else:
-        # No control channels - fewer recorders needed
-        base_recorders = 4
+        # No control channels - gets base allocation
+        recorders = base_per_device
     
-    # Adjust based on frequency density (more frequencies = more potential calls)
-    freq_density_factor = min(1.5, freq_count / max(1, len(all_frequencies)))
-    recorders = int(base_recorders * (1 + freq_density_factor))
+    # Distribute remainder to later devices
+    if device_index < remainder:
+        recorders += 1
     
-    # Ensure reasonable limits
-    return max(3, min(12, recorders))
+    # Ensure reasonable limits (minimum 6, maximum 10)
+    return max(6, min(10, recorders))
 
 def login_radioreference(username, password):
     """
@@ -240,8 +245,16 @@ def fetch_system_data(session, sid, siteid=None):
         print(f"Using site: {selected_site['description']} (ID: {selected_site['dec']})")
     else:
         print(f"\n📍 Multiple sites found:")
+        print(f"{'#':<3} {'ID':<6} {'Description':<30} {'NAC':<6} {'Additional Info':<50}")
+        print("-" * 95)
         for i, site in enumerate(sites):
-            print(f"   {i+1}. {site['description']} (ID: {site['dec']})")
+            # Get additional info from remaining columns
+            row = site['row']
+            additional_info = ' | '.join([col.strip() for col in row[4:9] if col.strip()])
+            if len(additional_info) > 47:
+                additional_info = additional_info[:47] + "..."
+            
+            print(f"{i+1:<3} {site['dec']:<6} {site['description']:<30} {site['nac']:<6} {additional_info:<50}")
         
         while True:
             try:
@@ -331,7 +344,7 @@ def generate_config(system_info, shortname="system", upload_config=None):
             "ppm": 0,
             "gain": 49,
             "agc": False,
-            "digitalRecorders": calculate_recorders(i, center, bandwidth, freqs, system_info['control_channels']),
+            "digitalRecorders": calculate_recorders(i, center, bandwidth, freqs, system_info['control_channels'], num_sources),
             "analogRecorders": 0,
             "driver": "osmosdr",
             "device": f"rtl={i}"
@@ -352,15 +365,16 @@ def generate_config(system_info, shortname="system", upload_config=None):
             "talkgroupDisplayFormat": "id_tag",
             "compressWav": True
         }],
-        "captureDir": "/var/lib/trunk-recorder/recordings",
+        "captureDir": "/trunkrecorder/recordings",
         "logLevel": "info",
         "broadcastSignals": True,
         "frequencyFormat": "mhz",
         "logFile": True,
-        "logDir": "/var/log/trunk-recorder",
-        "callTimeout": 180,
+        "logDir": "/trunkrecorder/logs",
+        "callTimeout": 120,
         "transmissionTimeout": 30,
-        "audioFormat": "wav"
+        "audioFormat": "wav",
+        "removeRecording": True
     }
     
     # Add NAC if available
@@ -396,7 +410,7 @@ def generate_config(system_info, shortname="system", upload_config=None):
                 "systems": [{
                     "shortName": upload_config['rdio']['shortname'],
                     "apiKey": upload_config['rdio']['api_key'],
-                    "systemId": 1
+                    "systemId": upload_config['rdio']['system_id']
                 }]
             })
         
@@ -445,6 +459,7 @@ def get_upload_config():
     existing_rdio_server = ''
     existing_rdio_key = ''
     existing_rdio_shortname = ''
+    existing_rdio_system_id = ''
     
     if existing_config:
         if 'systems' in existing_config and len(existing_config['systems']) > 0:
@@ -460,6 +475,7 @@ def get_upload_config():
                     if 'systems' in plugin and len(plugin['systems']) > 0:
                         existing_rdio_key = plugin['systems'][0].get('apiKey', '')
                         existing_rdio_shortname = plugin['systems'][0].get('shortName', '')
+                        existing_rdio_system_id = str(plugin['systems'][0].get('systemId', ''))
     
     # Configure Broadcastify
     while True:
@@ -532,6 +548,19 @@ def get_upload_config():
             upload_config['rdio']['shortname'] = name_input if name_input else existing_rdio_shortname
         else:
             upload_config['rdio']['shortname'] = input("System short name for RDIOScanner: ")
+        
+        # Get system ID for RDIOScanner
+        if existing_rdio_system_id:
+            system_id_input = input(f"RDIOScanner System ID [{existing_rdio_system_id}]: ").strip()
+            id_value = system_id_input if system_id_input else existing_rdio_system_id
+        else:
+            id_value = input("RDIOScanner System ID (numeric): ").strip()
+        
+        try:
+            upload_config['rdio']['system_id'] = int(id_value)
+        except ValueError:
+            print("   Error: System ID must be a number, using default 1")
+            upload_config['rdio']['system_id'] = 1
     
     return upload_config
 

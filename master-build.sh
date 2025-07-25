@@ -71,12 +71,10 @@ fi
 echo "Creating directory structure..."
 mkdir -p /etc/trunk-recorder
 mkdir -p /opt/trunk-recorder
-mkdir -p /var/lib/trunk-recorder/recordings
-mkdir -p /var/log/trunk-recorder
+mkdir -p /var/lib/trunk-recorder
 
-# Set initial permissions
+# Set initial permissions (legacy directory for user home)
 chown -R trunkrecorder:trunkrecorder /var/lib/trunk-recorder
-chown -R trunkrecorder:trunkrecorder /var/log/trunk-recorder
 
 # Run the RadioReference data fetcher script to get system config
 cd "$SCRIPT_DIR"

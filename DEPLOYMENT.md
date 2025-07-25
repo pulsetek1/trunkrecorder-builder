@@ -73,7 +73,7 @@ sudo systemctl status trunk-recorder
 sudo journalctl -u trunk-recorder -f
 
 # Verify recordings
-ls -la /var/lib/trunk-recorder/recordings/
+ls -la /trunkrecorder/recordings/
 
 # Test nightly updates
 sudo systemctl status radioreference-update.timer

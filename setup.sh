@@ -23,8 +23,8 @@ safe_apt() {
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"  # Get current script directory
 INSTALL_DIR="/opt/trunk-recorder"                           # Main installation directory
 SERVICE_USER="trunkrecorder"                               # Service user account
-RECORDINGS_DIR="/var/lib/trunk-recorder/recordings"         # Directory for radio recordings
-LOG_DIR="/var/log/trunk-recorder"                          # Directory for log files
+RECORDINGS_DIR="/trunkrecorder/recordings"                # Directory for radio recordings (RAM)
+LOG_DIR="/trunkrecorder/logs"                              # Directory for log files (RAM)
 
 # Print welcome message
 echo "=== Trunk Recorder System Deployment ==="
@@ -36,6 +36,17 @@ echo
 if [[ $EUID -ne 0 ]]; then
    echo "This script must be run as root (use sudo)" 
    exit 1
+fi
+
+# Stop and disable trunk-recorder service if it exists
+echo "Stopping any existing trunk-recorder service..."
+if systemctl is-active --quiet trunk-recorder; then
+    echo "Stopping trunk-recorder service..."
+    systemctl stop trunk-recorder
+fi
+if systemctl is-enabled --quiet trunk-recorder; then
+    echo "Disabling trunk-recorder service..."
+    systemctl disable trunk-recorder
 fi
 
 # Check for existing installation and handle accordingly
@@ -129,6 +140,37 @@ mkdir -p "$RECORDINGS_DIR"
 mkdir -p "$LOG_DIR"
 mkdir -p /etc/trunk-recorder
 
+# Clean up old /recordings mount point if it exists
+echo "Cleaning up old mount points..."
+if mountpoint -q /recordings 2>/dev/null; then
+    echo "Stopping trunk-recorder to unmount /recordings..."
+    systemctl stop trunk-recorder 2>/dev/null || true
+    sleep 2
+    umount /recordings 2>/dev/null || true
+fi
+if [ -d "/recordings" ]; then
+    rmdir /recordings 2>/dev/null || true
+fi
+# Remove old fstab entry
+sed -i '/\/recordings/d' /etc/fstab
+
+# Create tmpfs mount for recordings and logs (RAM-based to protect SD card)
+echo "Setting up RAM-based trunk-recorder directory..."
+
+# Add tmpfs to fstab for persistent RAM storage
+if ! grep -q "/trunkrecorder" /etc/fstab; then
+    echo "tmpfs /trunkrecorder tmpfs defaults,size=1G,uid=trunkrecorder,gid=trunkrecorder 0 0" >> /etc/fstab
+fi
+
+# Create directory and mount tmpfs
+mkdir -p /trunkrecorder
+mount -t tmpfs -o size=1G,uid=trunkrecorder,gid=trunkrecorder tmpfs /trunkrecorder
+chown "$SERVICE_USER:$SERVICE_USER" /trunkrecorder
+
+# Create subdirectories for recordings and logs
+mkdir -p /trunkrecorder/recordings /trunkrecorder/logs
+chown "$SERVICE_USER:$SERVICE_USER" /trunkrecorder/recordings /trunkrecorder/logs
+
 # Set directory ownership
 chown -R "$SERVICE_USER:$SERVICE_USER" "$RECORDINGS_DIR"
 chown -R "$SERVICE_USER:$SERVICE_USER" "$LOG_DIR"
@@ -152,27 +194,42 @@ EOF
 udevadm control --reload-rules
 udevadm trigger
 
-# Clone and build Trunk Recorder from source
-echo "Cloning Trunk Recorder..."
-cd /tmp
-if [ -d "trunk-recorder" ]; then
-    rm -rf trunk-recorder
+# Check if trunk-recorder binary exists and prompt for reinstall
+if [ -f "$INSTALL_DIR/trunk-recorder" ]; then
+    echo "📡 Trunk Recorder binary found at $INSTALL_DIR/trunk-recorder"
+    read -p "Do you want to rebuild Trunk Recorder from source? (y/n): " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        echo "Skipping Trunk Recorder build..."
+        SKIP_BUILD=true
+    fi
 fi
 
-git clone https://github.com/robotastic/trunk-recorder.git
-cd trunk-recorder
-
-# Build the application
-echo "Building Trunk Recorder (this may take 15-30 minutes)..."
-mkdir build
-cd build
-cmake ..
-make -j$(nproc)
-
-# Install the built application
-echo "Installing Trunk Recorder..."
-make install
-cp trunk-recorder "$INSTALL_DIR/"
+if [ "$SKIP_BUILD" != "true" ]; then
+    # Clone and build Trunk Recorder from source
+    echo "Cloning Trunk Recorder..."
+    cd /tmp
+    if [ -d "trunk-recorder" ]; then
+        rm -rf trunk-recorder
+    fi
+    
+    git clone https://github.com/robotastic/trunk-recorder.git
+    cd trunk-recorder
+    
+    # Build the application
+    echo "Building Trunk Recorder (this may take 15-30 minutes)..."
+    mkdir build
+    cd build
+    cmake ..
+    make -j$(nproc)
+    
+    # Install the built application
+    echo "Installing Trunk Recorder..."
+    make install
+    cp trunk-recorder "$INSTALL_DIR/"
+else
+    echo "Using existing Trunk Recorder binary"
+fi
 
 # Copy any available plugins
 if [ -d "plugins" ]; then
@@ -230,6 +287,9 @@ Type=simple
 User=$SERVICE_USER
 Group=$SERVICE_USER
 WorkingDirectory=$INSTALL_DIR
+Environment=LD_LIBRARY_PATH=/usr/local/lib/trunk-recorder:/usr/local/lib
+ExecStartPre=/bin/mkdir -p /trunkrecorder/recordings /trunkrecorder/logs
+ExecStartPre=/bin/chown $SERVICE_USER:$SERVICE_USER /trunkrecorder /trunkrecorder/recordings /trunkrecorder/logs
 ExecStart=$INSTALL_DIR/trunk-recorder --config=/etc/trunk-recorder/config.json
 Restart=always
 RestartSec=10
@@ -239,41 +299,62 @@ StandardError=journal
 # Resource limits
 LimitNOFILE=65536
 LimitNPROC=32768
+MemoryMax=1G
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-# Configure log rotation
-echo "Setting up log rotation..."
-cat > /etc/logrotate.d/trunk-recorder << 'EOF'
-/var/log/trunk-recorder/*.log {
-    daily
-    rotate 7
-    compress
-    delaycompress
-    missingok
-    notifempty
-    create 644 trunkrecorder trunkrecorder
-    postrotate
-        systemctl reload trunk-recorder || true
-    endscript
-}
-EOF
+# Note: Log rotation not needed - logs are in RAM and auto-cleaned
+echo "Log rotation handled by RAM cleanup timer (logs in tmpfs)..."
 
-# Set up automatic cleanup of old recordings
-echo "Setting up automatic recording cleanup..."
-cat > /usr/local/bin/cleanup-recordings.sh << 'EOF'
+# Create cleanup script for RAM drive management
+echo "Setting up RAM drive cleanup..."
+cat > /usr/local/bin/cleanup-ram-recordings.sh << 'EOF'
 #!/bin/bash
 
-# Delete recordings older than 14 days
-find /var/lib/trunk-recorder/recordings -type f -name "*.wav" -mtime +14 -delete
+# Clean up recordings older than 5 minutes from RAM drive
+find /trunkrecorder/recordings -name "*.wav" -type f -mmin +5 -delete 2>/dev/null
+find /trunkrecorder/recordings -name "*.m4a" -type f -mmin +5 -delete 2>/dev/null
+find /trunkrecorder/recordings -type d -empty -delete 2>/dev/null
 
-# Delete empty directories
-find /var/lib/trunk-recorder/recordings -type d -empty -delete
+# Clean up log files older than 30 minutes to prevent RAM overflow
+find /trunkrecorder/logs -name "*.log" -type f -mmin +30 -delete 2>/dev/null
+find /trunkrecorder/logs -type f -mmin +30 -delete 2>/dev/null
+
+# Remove old empty directories
+find /trunkrecorder -type d -empty -mmin +5 -delete 2>/dev/null
 EOF
 
-chmod +x /usr/local/bin/cleanup-recordings.sh
+chmod +x /usr/local/bin/cleanup-ram-recordings.sh
+
+# Create systemd timer for cleanup every 2 minutes
+cat > /etc/systemd/system/cleanup-ram-recordings.service << 'EOF'
+[Unit]
+Description=Clean up old recordings from RAM drive
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/cleanup-ram-recordings.sh
+EOF
+
+cat > /etc/systemd/system/cleanup-ram-recordings.timer << 'EOF'
+[Unit]
+Description=Run RAM recordings cleanup every 2 minutes
+Requires=cleanup-ram-recordings.service
+
+[Timer]
+OnCalendar=*:*:0/2
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+
+# Enable and start the cleanup timer
+systemctl daemon-reload
+systemctl enable cleanup-ram-recordings.timer
+systemctl start cleanup-ram-recordings.timer
 
 # Create daily cleanup cron job
 cat > /etc/cron.daily/cleanup-recordings << 'EOF'
