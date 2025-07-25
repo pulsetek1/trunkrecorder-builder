@@ -3,6 +3,22 @@
 # Enable exit on error
 set -e
 
+# Function to wait for apt lock to be released
+wait_for_apt_lock() {
+    echo "Checking for apt lock conflicts..."
+    while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || fuser /var/lib/apt/lists/lock >/dev/null 2>&1; do
+        echo "Waiting for other package managers to finish..."
+        sleep 5
+    done
+    echo "✓ Apt lock available"
+}
+
+# Function to run apt commands with lock handling
+safe_apt() {
+    wait_for_apt_lock
+    apt "$@"
+}
+
 # Define key directory paths
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"  # Get current script directory
 INSTALL_DIR="/opt/trunk-recorder"                           # Main installation directory
@@ -61,11 +77,11 @@ fi
 
 # Update system packages
 echo "Updating system packages..."
-apt update && apt upgrade -y
+safe_apt update && safe_apt upgrade -y
 
 # Install required dependencies
 echo "Installing dependencies..."
-apt install -y \
+safe_apt install -y \
     build-essential \
     cmake \
     git \

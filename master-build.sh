@@ -13,6 +13,22 @@ set -e
 # Get absolute path to script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Function to wait for apt lock to be released
+wait_for_apt_lock() {
+    echo "Checking for apt lock conflicts..."
+    while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || fuser /var/lib/apt/lists/lock >/dev/null 2>&1; do
+        echo "Waiting for other package managers to finish..."
+        sleep 5
+    done
+    echo "✓ Apt lock available"
+}
+
+# Function to run apt commands with lock handling
+safe_apt() {
+    wait_for_apt_lock
+    apt "$@"
+}
+
 echo "=== Trunk Recorder Master Build System ==="
 echo "This will fetch data from RadioReference.com and deploy a complete system"
 echo
@@ -40,8 +56,10 @@ echo
 echo "Verifying system information..."
 
 # Install required Python packages for the RadioReference scraper
-apt update
-apt install -y python3-requests python3-bs4
+echo "Updating package lists..."
+safe_apt update
+echo "Installing required Python packages..."
+safe_apt install -y python3-requests python3-bs4
 
 # Create service user and group if they don't exist
 echo "Creating trunkrecorder user and group..."
@@ -115,13 +133,9 @@ fi
 
 echo "✓ Configuration complete - nightly updates disabled for now"
 
-# Run system detection and installation recommendations
-echo "Running system analysis for Trunk Recorder installation..."
-./detect-system.sh
-
-# Keep config files for setup.sh script
-echo "Configuration files ready for deployment"
-echo "Run ./setup.sh to install Trunk Recorder with the generated configuration"
+# Install Trunk Recorder from source
+echo "Installing Trunk Recorder from source..."
+./setup.sh
 
 # Display completion message and status
 echo
