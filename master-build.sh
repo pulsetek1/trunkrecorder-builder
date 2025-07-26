@@ -84,16 +84,41 @@ mkdir -p /var/lib/trunk-recorder
 # Set initial permissions (legacy directory for user home)
 chown -R trunkrecorder:trunkrecorder /var/lib/trunk-recorder
 
-# Run the RadioReference data fetcher script to get system config
-cd "$SCRIPT_DIR"
-echo "Connecting to RadioReference.com..."
-python3 fetch-radioreference.py "$RR_USERNAME" "$RR_PASSWORD" "$RR_SID" --shortname "$SHORT_NAME" --abbrev "$SYSTEM_ABBREV"
+
 
 # Verify that the required config files were generated
 if [ ! -f "config.json" ] || [ ! -f "talkgroup.csv" ]; then
     echo "✗ Failed to generate configuration files"
     exit 1
 fi
+
+# Run the RadioReference data fetcher script to get system config and capture siteid
+cd "$SCRIPT_DIR"
+echo "Connecting to RadioReference.com..."
+python3 fetch-radioreference.py "$RR_USERNAME" "$RR_PASSWORD" "$RR_SID" --shortname "$SHORT_NAME" --abbrev "$SYSTEM_ABBREV" --capture-siteid
+
+# Get the siteid from the generated file
+SITEID=""
+if [ -f "siteid.txt" ]; then
+    SITEID=$(cat siteid.txt)
+    rm siteid.txt
+fi
+
+# Store deployment settings for nightly updates
+echo "Storing deployment settings..."
+cat > /etc/trunk-recorder/deployment-settings.json << EOF
+{
+  "username": "$RR_USERNAME",
+  "password": "$RR_PASSWORD",
+  "sid": "$RR_SID",
+  "shortname": "$SHORT_NAME",
+  "abbrev": "$SYSTEM_ABBREV",
+  "siteid": "$SITEID",
+  "deployed_date": "$(date -Iseconds)"
+}
+EOF
+chown trunkrecorder:trunkrecorder /etc/trunk-recorder/deployment-settings.json
+chmod 600 /etc/trunk-recorder/deployment-settings.json
 
 # Copy generated config files to system directories
 echo "Installing configuration files..."
@@ -106,6 +131,7 @@ echo "DEBUG: System config device assignments after copy:"
 grep -A 1 "device" /etc/trunk-recorder/config.json
 
 echo "✓ Configuration files installed successfully"
+echo "✓ Deployment settings saved for nightly updates"
 echo
 
 # Configure RTL-SDR devices with unique index numbers
@@ -137,7 +163,113 @@ else
     echo "Continuing without RTL-SDR device configuration"
 fi
 
-echo "✓ Configuration complete - nightly updates disabled for now"
+echo "✓ Configuration complete - setting up nightly updates..."
+
+# Create nightly update script
+cat > /usr/local/bin/update-talkgroups.sh << 'EOF'
+#!/bin/bash
+set -e
+
+LOG_DIR="/var/log/trunkrecorder"
+LOG_FILE="$LOG_DIR/$(date +%Y%m%d)_update.log"
+SETTINGS_FILE="/etc/trunk-recorder/deployment-settings.json"
+SCRIPT_DIR="/opt/trunk-recorder"
+
+# Create log directory
+mkdir -p "$LOG_DIR"
+
+# Function to log with timestamp
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG_FILE"
+}
+
+log "Starting nightly talkgroup update"
+
+# Check if settings file exists
+if [ ! -f "$SETTINGS_FILE" ]; then
+    log "ERROR: Deployment settings file not found at $SETTINGS_FILE"
+    exit 1
+fi
+
+# Read settings
+USERNAME=$(python3 -c "import json; print(json.load(open('$SETTINGS_FILE'))['username'])")
+PASSWORD=$(python3 -c "import json; print(json.load(open('$SETTINGS_FILE'))['password'])")
+SID=$(python3 -c "import json; print(json.load(open('$SETTINGS_FILE'))['sid'])")
+SHORTNAME=$(python3 -c "import json; print(json.load(open('$SETTINGS_FILE'))['shortname'])")
+ABBREV=$(python3 -c "import json; print(json.load(open('$SETTINGS_FILE'))['abbrev'])")
+
+log "Updating talkgroups for SID $SID ($SHORTNAME)"
+
+# Change to script directory
+cd "$SCRIPT_DIR"
+
+# Run the fetch script to update talkgroups only
+if python3 fetch-radioreference.py "$USERNAME" "$PASSWORD" "$SID" --shortname "$SHORTNAME" --abbrev "$ABBREV" --update-only 2>&1 | tee -a "$LOG_FILE"; then
+    log "Successfully fetched updated talkgroup data"
+    
+    # Copy new talkgroup file
+    if [ -f "talkgroup.csv" ]; then
+        cp talkgroup.csv /etc/trunk-recorder/
+        chown trunkrecorder:trunkrecorder /etc/trunk-recorder/talkgroup.csv
+        log "Updated talkgroup.csv installed"
+        
+        # Restart trunk-recorder service
+        log "Restarting trunk-recorder service"
+        systemctl restart trunk-recorder
+        
+        if systemctl is-active --quiet trunk-recorder; then
+            log "Service restarted successfully"
+        else
+            log "ERROR: Service failed to restart"
+            exit 1
+        fi
+    else
+        log "ERROR: talkgroup.csv not generated"
+        exit 1
+    fi
+else
+    log "ERROR: Failed to fetch talkgroup data"
+    exit 1
+fi
+
+log "Nightly update completed successfully"
+EOF
+
+chmod +x /usr/local/bin/update-talkgroups.sh
+
+# Create systemd service for nightly updates
+cat > /etc/systemd/system/talkgroup-update.service << EOF
+[Unit]
+Description=Nightly Talkgroup Update
+After=network.target
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/local/bin/update-talkgroups.sh
+EOF
+
+# Create systemd timer for nightly updates
+cat > /etc/systemd/system/talkgroup-update.timer << EOF
+[Unit]
+Description=Run talkgroup update nightly
+Requires=talkgroup-update.service
+
+[Timer]
+OnCalendar=daily
+RandomizedDelaySec=1800
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+
+# Enable and start the timer
+systemctl daemon-reload
+systemctl enable talkgroup-update.timer
+systemctl start talkgroup-update.timer
+
+echo "✓ Nightly talkgroup updates configured"
 
 # Install Trunk Recorder from source
 echo "Installing Trunk Recorder from source..."

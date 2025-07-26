@@ -9,6 +9,12 @@ cd trunkrecorder-builder
 sudo ./master-build.sh
 ```
 
+**System Analysis**: The script will automatically:
+- 🔍 Analyze your OS, architecture, and hardware
+- 💡 Recommend optimal installation method (Docker/Native/Source)
+- ✅ Validate system requirements and dependencies
+- 🎯 Provide platform-specific optimization suggestions
+
 ### 2️⃣ Required Info
 - 🔐 **RadioReference.com** username/password
 - 🆔 **System ID** (from RadioReference URL)
@@ -21,12 +27,14 @@ sudo ./master-build.sh
 
 ## ✅ Pre-Flight Checklist
 
-- [ ] 🥧 Raspberry Pi 4 (4GB+ RAM)
+- [ ] 🥧 Raspberry Pi 4 (4GB+ RAM) or compatible x86_64/ARM64 system
 - [ ] 📻 1-3 RTL-SDR dongles connected
 - [ ] 🔑 RTL-SDR dongles with unique serial numbers
 - [ ] 🌐 Internet connection active
 - [ ] 💾 32GB+ storage available
 - [ ] 👤 RadioReference premium account
+- [ ] 🐳 Docker installed (if choosing Docker method)
+- [ ] 🔧 Build tools available (if choosing source compilation)
 
 ## 🔧 Hardware Test
 
@@ -76,7 +84,10 @@ sudo journalctl -u trunk-recorder -f
 ls -la /trunkrecorder/recordings/
 
 # Test nightly updates
-sudo systemctl status radioreference-update.timer
+sudo systemctl status talkgroup-update.timer
+
+# For Docker installations, check container status
+sudo docker ps | grep trunk-recorder
 ```
 
 ## 🎯 Production Checklist

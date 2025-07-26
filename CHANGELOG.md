@@ -2,6 +2,43 @@
 
 All notable changes to the Trunk Recorder Master Build System will be documented in this file.
 
+## [v1.8] - 2025-01-25
+
+### Added
+- **Intelligent System Analysis**: Comprehensive OS, architecture, memory, and hardware detection
+- **Installation Method Selection**: Automated recommendations for Docker, native packages, or source compilation
+- **Enhanced Docker Support**: Complete containerized deployment with proper volume management
+- **System Requirements Analysis**: Memory, CPU, and dependency validation before installation
+- **Platform-Specific Support**: Tailored installation for Ubuntu, Debian, Fedora, CentOS, Arch, openSUSE, and macOS
+- **Interactive Configuration**: Guided setup with intelligent defaults and input validation
+- **Performance Recommendations**: Hardware-specific tuning suggestions based on system analysis
+
+### Changed
+- **Modular Architecture**: Separated system detection (`detect-system.sh`) from main installation logic
+- **Installation Flow**: User now selects from recommended installation methods based on system analysis
+- **Configuration Management**: Enhanced validation and error handling throughout setup process
+
+### Improved
+- **User Experience**: Clear system analysis results with tailored recommendations
+- **Installation Reliability**: Better error handling and dependency management
+- **Documentation**: Updated with new installation options and system requirements
+
+## [v1.7] - 2025-01-25
+
+### Added
+- **Deployment Settings Storage**: User inputs from master-build.sh saved to `/etc/trunk-recorder/deployment-settings.json`
+- **Automated Nightly Updates**: Systemd timer service for automatic talkgroup updates
+- **Update Logging**: Daily update logs stored in `/var/log/trunkrecorder/YYYYMMDD_update.log`
+- **Update-Only Mode**: New `--update-only` flag for fetch-radioreference.py
+
+### Changed
+- **Service Restart**: Automatic trunk-recorder restart after talkgroup updates
+- **Log Location**: Update logs moved from RAM drive to persistent storage
+
+### Improved
+- **Maintenance Automation**: Reduced manual intervention for talkgroup updates
+- **System Reliability**: Automated service restart ensures configuration changes take effect
+
 ## [v1.6] - 2025-01-25
 
 ### Fixed
