@@ -575,6 +575,7 @@ def main():
     parser.add_argument('password', help='RadioReference.com password')
     parser.add_argument('sid', type=int, help='System ID (from URL like /db/sid/12059)')
     parser.add_argument('--shortname', default='system', help='Short name for system')
+    parser.add_argument('--abbrev', default='SYSTEM', help='System abbreviation for categories')
     parser.add_argument('--siteid', help='Specific site ID to use (for automated updates)')
     
     args = parser.parse_args()
@@ -644,29 +645,35 @@ def main():
     tg_response = session.get(tg_csv_url)
     
     if tg_response.status_code == 200:
-        # Save raw CSV as talkgroup.csv (for Trunk Recorder)
-        with open('talkgroup.csv', 'w') as f:
-            f.write(tg_response.text)
-        
-        # Save raw CSV as talkgroup-rdio.csv (for RDIOScanner import)
-        with open('talkgroup-rdio.csv', 'w') as f:
-            f.write(tg_response.text)
-        
-        # Create talkgroup-openmhz.csv with truncated descriptions
         lines = tg_response.text.strip().split('\n')
-        with open('talkgroup-openmhz.csv', 'w', newline='') as f:
-            writer = csv.writer(f)
-            
-            for i, line in enumerate(lines):
-                row = list(csv.reader([line]))[0]  # Parse each line individually
+        
+        # Process CSV to append system abbreviation to category
+        def process_csv_with_system_abbrev(filename, truncate_desc=False):
+            with open(filename, 'w', newline='') as f:
+                writer = csv.writer(f)
                 
-                if i == 0:  # Header row
-                    writer.writerow(row)
-                else:  # Data rows
-                    if len(row) >= 5:  # Ensure we have description column (index 4)
-                        # Truncate description (column 4) to 25 characters
-                        row[4] = row[4][:25] if len(row[4]) > 25 else row[4]
-                    writer.writerow(row)
+                for i, line in enumerate(lines):
+                    row = list(csv.reader([line]))[0]  # Parse each line individually
+                    
+                    if i == 0:  # Header row
+                        writer.writerow(row)
+                    else:  # Data rows
+                        if len(row) >= 7:  # Ensure we have category column (index 6)
+                            # Prepend system abbreviation to category (column 6)
+                            if row[6].strip():
+                                row[6] = f"{args.abbrev.upper()} - {row[6]}"
+                            else:
+                                row[6] = args.abbrev.upper()
+                        
+                        if truncate_desc and len(row) >= 5:  # Truncate description for OpenMHz
+                            row[4] = row[4][:25] if len(row[4]) > 25 else row[4]
+                        
+                        writer.writerow(row)
+        
+        # Generate all three CSV files with system abbreviation appended to category
+        process_csv_with_system_abbrev('talkgroup.csv')
+        process_csv_with_system_abbrev('talkgroup-rdio.csv')
+        process_csv_with_system_abbrev('talkgroup-openmhz.csv', truncate_desc=True)
     
     print(f"✓ Found {len(talkgroups)} talkgroups")
     
