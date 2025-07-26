@@ -50,7 +50,15 @@ read -p "Username: " RR_USERNAME
 read -s -p "Password: " RR_PASSWORD
 echo
 read -p "System ID (from URL like /db/sid/12059): " RR_SID
-read -p "System short name (e.g., aaco, metro, county): " SHORT_NAME
+while true; do
+    read -p "System short name (4-10 characters, e.g., aaco, metro, county): " SHORT_NAME
+    if [[ ${#SHORT_NAME} -ge 4 && ${#SHORT_NAME} -le 10 ]]; then
+        break
+    else
+        echo "Error: Short name must be 4-10 characters long"
+    fi
+done
+read -p "System abbreviation for categories (e.g., AACO, METRO, COUNTY): " SYSTEM_ABBREV
 
 echo
 echo "Verifying system information..."
@@ -79,7 +87,7 @@ chown -R trunkrecorder:trunkrecorder /var/lib/trunk-recorder
 # Run the RadioReference data fetcher script to get system config
 cd "$SCRIPT_DIR"
 echo "Connecting to RadioReference.com..."
-python3 fetch-radioreference.py "$RR_USERNAME" "$RR_PASSWORD" "$RR_SID" --shortname "$SHORT_NAME"
+python3 fetch-radioreference.py "$RR_USERNAME" "$RR_PASSWORD" "$RR_SID" --shortname "$SHORT_NAME" --abbrev "$SYSTEM_ABBREV"
 
 # Verify that the required config files were generated
 if [ ! -f "config.json" ] || [ ! -f "talkgroup.csv" ]; then
