@@ -437,9 +437,12 @@ def load_existing_config():
             continue
     return None
 
-def get_upload_config():
+def get_upload_config(system_shortname=None):
     """
     Get upload service configuration from user with existing values as defaults
+    
+    Args:
+        system_shortname (str): System shortname to use as default for RDIOScanner
     
     Returns:
         dict: Upload service configuration settings
@@ -543,11 +546,10 @@ def get_upload_config():
         else:
             upload_config['rdio']['api_key'] = input("RDIOScanner API Key: ")
         
-        if existing_rdio_shortname:
-            name_input = input(f"System short name for RDIOScanner [{existing_rdio_shortname}]: ").strip()
-            upload_config['rdio']['shortname'] = name_input if name_input else existing_rdio_shortname
-        else:
-            upload_config['rdio']['shortname'] = input("System short name for RDIOScanner: ")
+        # Use system shortname as default if no existing config
+        default_shortname = existing_rdio_shortname or system_shortname or 'system'
+        name_input = input(f"System short name for RDIOScanner [{default_shortname}]: ").strip()
+        upload_config['rdio']['shortname'] = name_input if name_input else default_shortname
         
         # Get system ID for RDIOScanner
         if existing_rdio_system_id:
@@ -627,7 +629,7 @@ def main():
     
     # Get upload service configuration
     input("\nPress Enter to continue with configuration...")
-    upload_config = get_upload_config()
+    upload_config = get_upload_config(args.shortname)
     
     # System data already fetched above for RTL-SDR calculation
     print(f"\nProcessing data for {basic_info['name']}...")
