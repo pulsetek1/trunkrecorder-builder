@@ -579,6 +579,8 @@ def main():
     parser.add_argument('--shortname', default='system', help='Short name for system')
     parser.add_argument('--abbrev', default='SYSTEM', help='System abbreviation for categories')
     parser.add_argument('--siteid', help='Specific site ID to use (for automated updates)')
+    parser.add_argument('--update-only', action='store_true', help='Only update talkgroups, skip configuration prompts')
+    parser.add_argument('--capture-siteid', action='store_true', help='Save selected siteid to file for future updates')
     
     args = parser.parse_args()
     
@@ -602,16 +604,23 @@ def main():
     print(f"   Location: {basic_info['location']}")
     print(f"   SID: {basic_info['sid']}")
     
-    confirm = input(f"\nIs this the correct system? (y/n): ")
-    if not confirm.lower().startswith('y'):
-        print("Aborted by user")
-        sys.exit(0)
+    if not args.update_only:
+        confirm = input(f"\nIs this the correct system? (y/n): ")
+        if not confirm.lower().startswith('y'):
+            print("Aborted by user")
+            sys.exit(0)
+    else:
+        print(f"\n✓ Updating system: {basic_info['name']}")
     
     # Fetch detailed system data to calculate RTL-SDR requirements
-    print(f"\nAnalyzing frequency requirements...")
+    if not args.update_only:
+        print(f"\nAnalyzing frequency requirements...")
+    else:
+        print(f"\nFetching talkgroup data...")
+        
     talkgroups, system_info = fetch_system_data(session, args.sid, args.siteid)
     
-    if system_info and system_info['frequencies']:
+    if not args.update_only and system_info and system_info['frequencies']:
         freqs = sorted(system_info['frequencies'])
         min_freq = min(freqs) / 1000000
         max_freq = max(freqs) / 1000000
@@ -627,18 +636,25 @@ def main():
         print(f"   (Each RTL-SDR covers ~2.4 MHz bandwidth)")
         print(f"\n⚠️  Make sure you have {rtl_needed} RTL-SDR dongles connected before deployment.")
     
-    # Get upload service configuration
-    input("\nPress Enter to continue with configuration...")
-    upload_config = get_upload_config(args.shortname)
+    # Get upload service configuration (skip if update-only)
+    if args.update_only:
+        upload_config = None
+        print("\nSkipping upload service configuration (update-only mode)")
+    else:
+        input("\nPress Enter to continue with configuration...")
+        upload_config = get_upload_config(args.shortname)
     
-    # System data already fetched above for RTL-SDR calculation
-    print(f"\nProcessing data for {basic_info['name']}...")
+    # System data already fetched above
+    if not args.update_only:
+        print(f"\nProcessing data for {basic_info['name']}...")
+    else:
+        print(f"\nProcessing talkgroup data for {basic_info['name']}...")
     
     if not talkgroups:
         print("✗ No talkgroups found")
         sys.exit(1)
     
-    if not system_info:
+    if not args.update_only and not system_info:
         print("✗ No system info found")
         sys.exit(1)
     
@@ -674,35 +690,51 @@ def main():
         
         # Generate all three CSV files with system abbreviation appended to category
         process_csv_with_system_abbrev('talkgroup.csv')
-        process_csv_with_system_abbrev('talkgroup-rdio.csv')
-        process_csv_with_system_abbrev('talkgroup-openmhz.csv', truncate_desc=True)
+        if not args.update_only:  # Only generate additional formats during full deployment
+            process_csv_with_system_abbrev('talkgroup-rdio.csv')
+            process_csv_with_system_abbrev('talkgroup-openmhz.csv', truncate_desc=True)
     
     print(f"✓ Found {len(talkgroups)} talkgroups")
     
-    # Generate config.json
-    config = generate_config(system_info, args.shortname, upload_config)
-    if config:
-        print(f"✓ Found {len(system_info['control_channels'])} control channels")
-        print(f"✓ Found {len(system_info['frequencies'])} total frequencies")
-        print(f"✓ Generated {len(config['sources'])} RTL-SDR sources")
-        
-        with open('config.json', 'w') as f:
-            json.dump(config, f, indent=2)
-        
-        print("\n✓ Files generated:")
-        print("  - config.json")
+    if args.update_only:
+        print("✓ Talkgroup update completed successfully")
+    
+    # Save siteid for future updates if requested
+    if args.capture_siteid and system_info:
+        with open('siteid.txt', 'w') as f:
+            f.write(system_info['siteid'])
+        print(f"✓ Site ID {system_info['siteid']} saved for future updates")
+    
+    # Generate config.json (skip if update-only)
+    if not args.update_only:
+        config = generate_config(system_info, args.shortname, upload_config)
+        if config:
+            print(f"✓ Found {len(system_info['control_channels'])} control channels")
+            print(f"✓ Found {len(system_info['frequencies'])} total frequencies")
+            print(f"✓ Generated {len(config['sources'])} RTL-SDR sources")
+            
+            with open('config.json', 'w') as f:
+                json.dump(config, f, indent=2)
+            
+            print("\n✓ Files generated:")
+            print("  - config.json")
+            print("  - talkgroup.csv (full descriptions)")
+            print("  - talkgroup-openmhz.csv (25-char descriptions)")
+            print("  - talkgroup-rdio.csv (original RadioReference format)")
+            print("\n📋 Note: talkgroup-rdio.csv can be imported into RDIOScanner admin site")
+            
+            if not any(upload_config[svc]['enabled'] for svc in upload_config):
+                print("\n⚠ No upload services configured - recordings will be local only")
+            else:
+                print("\n✓ Upload services configured successfully!")
+        else:
+            print("✗ Failed to generate config")
+            sys.exit(1)
+    else:
+        print("\n✓ Talkgroup files updated:")
         print("  - talkgroup.csv (full descriptions)")
         print("  - talkgroup-openmhz.csv (25-char descriptions)")
         print("  - talkgroup-rdio.csv (original RadioReference format)")
-        print("\n📋 Note: talkgroup-rdio.csv can be imported into RDIOScanner admin site")
-        
-        if not any(upload_config[svc]['enabled'] for svc in upload_config):
-            print("\n⚠ No upload services configured - recordings will be local only")
-        else:
-            print("\n✓ Upload services configured successfully!")
-    else:
-        print("✗ Failed to generate config")
-        sys.exit(1)
 
 if __name__ == "__main__":
     main()

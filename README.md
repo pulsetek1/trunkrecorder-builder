@@ -161,6 +161,7 @@ sudo ./configure-rtlsdr.sh
 /etc/trunk-recorder/
 ├── config.json                 # Main configuration
 ├── talkgroup.csv              # Talkgroup definitions
+├── deployment-settings.json   # Stored deployment settings
 └── radioreference-creds       # Encrypted credentials
 
 /trunkrecorder/                # RAM Drive (tmpfs - 1GB)
@@ -208,13 +209,13 @@ sudo journalctl -u trunk-recorder -f
 ### 🌙 Nightly Update Service
 ```bash
 # Check update timer
-sudo systemctl status radioreference-update.timer
+sudo systemctl status talkgroup-update.timer
 
 # Manual update
-sudo /usr/local/bin/update-radioreference.sh
+sudo /usr/local/bin/update-talkgroups.sh
 
 # View update logs
-sudo tail -f /trunkrecorder/logs/radioreference-update.log
+sudo tail -f /var/log/trunkrecorder/$(date +%Y%m%d)_update.log
 ```
 
 ## 📊 Monitoring and Maintenance
@@ -242,14 +243,14 @@ sudo tail -f /trunkrecorder/logs/radioreference-update.log
 
 - 📄 **Main Logs**: `/trunkrecorder/logs/` (RAM drive)
 - 🖥️ **System Logs**: `journalctl -u trunk-recorder`
-- 🔄 **Update Logs**: `/trunkrecorder/logs/radioreference-update.log`
+- 🔄 **Update Logs**: `/var/log/trunkrecorder/YYYYMMDD_update.log`
 
 ### 🤖 Automatic Maintenance
 
 - 🔄 **RAM Cleanup**: Recordings deleted after 5 minutes, logs after 30 minutes
 - 🧹 **Automated Timer**: Cleanup runs every 2 minutes via systemd timer
 - 🔧 **System Updates**: Unattended upgrades enabled
-- 🌙 **Nightly Updates**: Automatic talkgroup refresh
+- 🌙 **Nightly Updates**: Automatic talkgroup refresh with systemd timer
 
 ## 🔧 Troubleshooting
 
@@ -466,6 +467,20 @@ sudo tar -czf trunk-recorder-backup.tar.gz \
   - 🔧 **Fixed RDIOScanner Upload Issue**: Corrected shortName mismatch that prevented uploads
   - 🎯 **Automatic Shortname Matching**: RDIOScanner plugin now defaults to system shortName
   - 📝 **Improved Configuration Prompts**: Clearer guidance for upload service setup
+- **v1.7**: Automated Nightly Updates
+  - 💾 **Deployment Settings Storage**: User inputs saved to `/etc/trunk-recorder/deployment-settings.json`
+  - 🌙 **Automated Talkgroup Updates**: Nightly systemd timer updates talkgroups from RadioReference
+  - 📅 **Update Logging**: Daily update logs stored in `/var/log/trunkrecorder/`
+  - 🔄 **Service Restart**: Automatic trunk-recorder restart after talkgroup updates
+- **v1.8**: Intelligent System Analysis and Installation
+  - 🔍 **Smart System Detection**: Comprehensive OS, architecture, and hardware analysis
+  - 🎯 **Installation Method Selection**: Automated recommendations for Docker, native, or source installation
+  - 🐳 **Enhanced Docker Support**: Complete containerized deployment with volume management
+  - 📊 **System Requirements Analysis**: Memory, CPU, and dependency checking
+  - 🔧 **Modular Architecture**: Separated system detection, analysis, and installation logic
+  - 📋 **Interactive Configuration**: Guided setup with intelligent defaults and validation
+  - 🛠️ **Platform-Specific Optimization**: Tailored installation for Ubuntu, Debian, Fedora, CentOS, Arch, openSUSE, and macOS
+  - 📈 **Performance Recommendations**: Hardware-specific tuning suggestions
 
 ## 📄 License
 
