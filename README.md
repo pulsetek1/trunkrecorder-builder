@@ -306,6 +306,12 @@ sudo chronyc makestep
 - 📻 Check RTL-SDR gain settings
 - 👥 Confirm talkgroups are active
 
+📊 **RDIOScanner Not Uploading**:
+- ✅ Verify shortName in plugin config matches system shortName
+- 🔍 Check logs for "[Rdio Scanner]" messages during startup
+- 🎯 Ensure API key and system ID are correct
+- 🔄 Restart service after config changes: `sudo systemctl restart trunk-recorder`
+
 ### 📊 Log Analysis
 
 **Broadcastify Errors**:
@@ -316,6 +322,11 @@ sudo chronyc makestep
 **OpenMHz Errors**:
 - `ShortName does not exist`: System not configured in OpenMHz
 - `Invalid API Key`: Check API key configuration
+
+**RDIOScanner Errors**:
+- `No upload messages in logs`: Check shortName matches system shortName in config
+- `Connection refused`: Verify RDIOScanner server URL and port
+- `Invalid API Key`: Check API key configuration in RDIOScanner admin
 
 ## 🔒 Security Considerations
 
@@ -451,6 +462,10 @@ sudo tar -czf trunk-recorder-backup.tar.gz \
   - 📊 **Enhanced Site Selection**: Multi-column display shows all available site information
   - ⏱️ **Optimized Timeouts**: Reduced call timeout to 120 seconds for faster recorder availability
   - 🔄 **Automated Cleanup Service**: Systemd timer runs every 2 minutes to manage RAM usage
+- **v1.6**: RDIOScanner Configuration Fix
+  - 🔧 **Fixed RDIOScanner Upload Issue**: Corrected shortName mismatch that prevented uploads
+  - 🎯 **Automatic Shortname Matching**: RDIOScanner plugin now defaults to system shortName
+  - 📝 **Improved Configuration Prompts**: Clearer guidance for upload service setup
 
 ## 📄 License
 
