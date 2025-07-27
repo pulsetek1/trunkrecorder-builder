@@ -2,6 +2,27 @@
 
 All notable changes to the Trunk Recorder Master Build System will be documented in this file.
 
+## [v1.9] - 2025-01-27
+
+### Added
+- **Visual Frequency Distribution Graph**: Real-time display of RTL-SDR frequency coverage during configuration
+- **Enhanced User Experience**: Step-by-step guided installation with clear progress indicators
+- **Comprehensive User Education**: Detailed explanations of RadioReference.com, System ID lookup, and requirements
+- **Input Validation**: System ID validation and better error handling throughout the process
+- **Production-Ready Documentation**: Complete deployment guide with troubleshooting and monitoring sections
+
+### Changed
+- **Improved Installation Flow**: 5-step process with clear explanations and time estimates
+- **Better User Prompts**: More descriptive prompts with context and validation
+- **Enhanced Completion Summary**: Detailed success message with next steps and useful commands
+- **Clearer Service Management**: Better distinction between reconfiguration and rebuilding
+
+### Improved
+- **User Guidance**: Comprehensive pre-flight checklist and hardware requirements
+- **Error Messages**: More helpful error messages with specific troubleshooting steps
+- **Documentation**: Updated all documentation for production deployment
+- **Visual Feedback**: Progress indicators and status messages throughout installation
+
 ## [v1.8] - 2025-01-25
 
 ### Added

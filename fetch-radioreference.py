@@ -21,8 +21,6 @@ import csv
 import json
 import sys
 import argparse
-import subprocess
-import os
 from bs4 import BeautifulSoup
 
 def calculate_recorders(device_index, center_freq, bandwidth, all_frequencies, control_channels, total_devices=3):
@@ -302,153 +300,77 @@ def fetch_system_data(session, sid, siteid=None):
     
     return talkgroups, system_info
 
-def calibrate_rtl_gain(control_channels):
+def display_frequency_graph(freqs, centers, bandwidth=2400000):
     """
-    Calibrate optimal gain settings for RTL-SDR devices using control channels
+    Display a visual graph of frequency distribution across RTL devices
     
     Args:
-        control_channels (list): List of control channel frequencies in Hz
-        
-    Returns:
-        dict: Optimal gain settings for each RTL device
+        freqs (list): All frequencies in Hz
+        centers (list): RTL center frequencies in Hz  
+        bandwidth (int): RTL bandwidth in Hz
     """
-    print("\n🔧 RTL-SDR Gain Calibration")
-    print("============================")
+    print("\n📊 RTL-SDR Frequency Distribution")
+    print("=" * 50)
     
-    # Stop trunk-recorder to free devices
-    print("Stopping trunk-recorder service...")
-    try:
-        subprocess.run(['sudo', 'systemctl', 'stop', 'trunk-recorder'], check=True, capture_output=True)
-        subprocess.run(['sudo', 'pkill', '-9', '-f', 'trunk-recorder'], capture_output=True)
-    except:
-        pass
+    min_freq = min(freqs) / 1000000
+    max_freq = max(freqs) / 1000000
+    span = max_freq - min_freq
     
-    # Test gains for each device
-    gains = [20, 25, 30, 35, 40, 45]
-    optimal_gains = {}
+    # Create frequency scale
+    scale_start = int(min_freq)
+    scale_end = int(max_freq) + 1
+    scale_width = 60
     
-    for device in range(min(3, len(control_channels))):
-        freq_hz = control_channels[device] if device < len(control_channels) else control_channels[0]
-        freq_mhz = freq_hz / 1000000
-        
-        print(f"\n📡 Testing RTL={device} ({freq_mhz:.3f} MHz)")
-        print("-" * 40)
-        
-        best_gain = 20
-        best_power = -999
-        
-        for gain in gains:
-            try:
-                # Create frequency range (±1kHz)
-                freq_low = freq_mhz - 0.001
-                freq_high = freq_mhz + 0.001
-                freq_range = f"{freq_low:.6f}M:{freq_high:.6f}M:1k"
-                
-                # Run rtl_power
-                result = subprocess.run([
-                    'rtl_power', '-f', freq_range, '-g', str(gain), 
-                    '-i', '1', '-d', str(device), '-1'
-                ], capture_output=True, text=True, timeout=15)
-                
-                if result.returncode == 0 and result.stdout:
-                    # Parse power value from CSV output
-                    lines = result.stdout.strip().split('\n')
-                    for line in lines:
-                        if ',' in line and not line.startswith('2025'):
-                            continue
-                        parts = line.split(',')
-                        if len(parts) >= 7:
-                            try:
-                                power = float(parts[6].strip())
-                                print(f"Gain {gain:2d}dB: {power:6.2f} dBm")
-                                
-                                if power > best_power and (best_power == -999 or power - best_power < 15):
-                                    best_gain = gain
-                                    best_power = power
-                                break
-                            except ValueError:
-                                continue
-                    else:
-                        print(f"Gain {gain:2d}dB: No signal detected")
-                else:
-                    print(f"Gain {gain:2d}dB: Device error")
-                    
-            except subprocess.TimeoutExpired:
-                print(f"Gain {gain:2d}dB: Timeout")
-            except Exception as e:
-                print(f"Gain {gain:2d}dB: Error - {str(e)}")
-        
-        optimal_gains[device] = best_gain
-        print(f"✓ Optimal gain for RTL={device}: {best_gain}dB")
+    print(f"\nFrequency Range: {min_freq:.3f} - {max_freq:.3f} MHz (Span: {span:.3f} MHz)\n")
     
-    # Restart trunk-recorder
-    try:
-        subprocess.run(['sudo', 'systemctl', 'start', 'trunk-recorder'], capture_output=True)
-    except:
-        pass
-    
-    return optimal_gains
-
-def get_gain_settings(system_info, auto_calibrate=True):
-    """
-    Get gain settings either through auto-calibration or user input
-    
-    Args:
-        system_info (dict): System information including control channels
-        auto_calibrate (bool): Whether to run auto-calibration
-        
-    Returns:
-        dict: Gain settings for each RTL device
-    """
-    if not auto_calibrate or not system_info.get('control_channels'):
-        # Default gains for RTL-SDR v4
-        return {0: 30, 1: 30, 2: 25}
-    
-    print("\n🎯 RTL-SDR Gain Configuration")
-    print("=============================")
-    
-    # Ask user for gain preference
-    while True:
-        choice = input("\nGain setting method:\n  1) Auto-calibrate (recommended)\n  2) Manual entry\n\nSelect option (1-2): ").strip()
-        if choice in ['1', '2']:
-            break
-        print("Please enter 1 or 2")
-    
-    if choice == '1':
-        print("\n🔍 Running automatic gain calibration...")
-        print("This will temporarily stop trunk-recorder and test each RTL device.")
-        
-        confirm = input("\nProceed with auto-calibration? (y/n): ").lower().strip()
-        if confirm.startswith('y'):
-            return calibrate_rtl_gain(system_info['control_channels'])
+    # Draw scale
+    scale_line = ""
+    for i in range(scale_width + 1):
+        freq_pos = scale_start + (scale_end - scale_start) * i / scale_width
+        if i % 10 == 0:
+            scale_line += "|"
         else:
-            print("Using default gains: RTL=0: 30dB, RTL=1: 30dB, RTL=2: 25dB")
-            return {0: 30, 1: 30, 2: 25}
+            scale_line += "-"
+    print(f"{scale_start:3.0f}" + scale_line[3:-3] + f"{scale_end:3.0f} MHz")
     
-    # Manual gain entry
-    print("\n📻 Manual Gain Entry")
-    print("RTL-SDR v4 supported gains: 0.0 to 49.6 dB")
-    print("Recommended range: 20-40 dB")
+    # Draw RTL coverage for each device
+    for i, center in enumerate(centers):
+        center_mhz = center / 1000000
+        bw_mhz = bandwidth / 1000000 / 2  # Half bandwidth each side
+        
+        # Calculate positions on scale
+        center_pos = int((center_mhz - scale_start) / (scale_end - scale_start) * scale_width)
+        start_pos = int((center_mhz - bw_mhz - scale_start) / (scale_end - scale_start) * scale_width)
+        end_pos = int((center_mhz + bw_mhz - scale_start) / (scale_end - scale_start) * scale_width)
+        
+        # Create RTL coverage line
+        rtl_line = [" "] * (scale_width + 1)
+        
+        # Mark coverage range
+        for pos in range(max(0, start_pos), min(scale_width + 1, end_pos + 1)):
+            rtl_line[pos] = "═"
+        
+        # Mark center
+        if 0 <= center_pos <= scale_width:
+            rtl_line[center_pos] = "█"
+        
+        # Mark frequencies in this RTL's range
+        for freq in freqs:
+            freq_mhz = freq / 1000000
+            if center_mhz - bw_mhz <= freq_mhz <= center_mhz + bw_mhz:
+                freq_pos = int((freq_mhz - scale_start) / (scale_end - scale_start) * scale_width)
+                if 0 <= freq_pos <= scale_width and rtl_line[freq_pos] != "█":
+                    rtl_line[freq_pos] = "●"
+        
+        rtl_display = "".join(rtl_line)
+        freq_count = sum(1 for f in freqs if center_mhz - bw_mhz <= f/1000000 <= center_mhz + bw_mhz)
+        
+        print(f"RTL={i} [{center_mhz:7.3f} MHz]: {rtl_display} ({freq_count} freqs)")
     
-    gains = {}
-    rtl_count = len(system_info.get('control_channels', [1, 1, 1])[:3])
-    
-    for device in range(rtl_count):
-        while True:
-            try:
-                gain_input = input(f"\nEnter gain for RTL={device} (0-49.6 dB): ").strip()
-                gain = float(gain_input)
-                if 0 <= gain <= 49.6:
-                    gains[device] = int(gain)
-                    break
-                else:
-                    print("Gain must be between 0 and 49.6 dB")
-            except ValueError:
-                print("Please enter a valid number")
-    
-    return gains
+    print("\nLegend: █ = RTL Center  ● = Frequency  ═ = Coverage Range")
+    print(f"Each RTL covers ±{bandwidth/2000000:.1f} MHz from center frequency\n")
 
-def generate_config(system_info, shortname="system", upload_config=None, gain_settings=None):
+def generate_config(system_info, shortname="system", upload_config=None):
     """
     Generate trunk-recorder config.json structure
     
@@ -503,17 +425,17 @@ def generate_config(system_info, shortname="system", upload_config=None, gain_se
         centers.append(int(center))
         start_idx = end_idx
     
+    # Display frequency distribution graph
+    display_frequency_graph(freqs, centers, bandwidth)
+    
     # Create sources with optimal centers and calculated recorders
     for i in range(num_sources):
         center = centers[i]
-        # Use calibrated gain or default
-        gain = gain_settings.get(i, 30) if gain_settings else 30
-        
         sources.append({
             "center": center,
             "rate": bandwidth,
             "ppm": 0,
-            "gain": gain,
+            "gain": 49,
             "agc": False,
             "digitalRecorders": calculate_recorders(i, center, bandwidth, freqs, system_info['control_channels'], num_sources),
             "analogRecorders": 0,
@@ -912,15 +834,7 @@ def main():
     
     # Generate config.json (skip if update-only)
     if not args.update_only:
-        # Get gain settings
-        gain_settings = get_gain_settings(system_info, auto_calibrate=True)
-        
-        if gain_settings:
-            print("\n📻 RTL-SDR Gain Settings:")
-            for device, gain in gain_settings.items():
-                print(f"   RTL={device}: {gain}dB")
-        
-        config = generate_config(system_info, args.shortname, upload_config, gain_settings)
+        config = generate_config(system_info, args.shortname, upload_config)
         if config:
             print(f"✓ Found {len(system_info['control_channels'])} control channels")
             print(f"✓ Found {len(system_info['frequencies'])} total frequencies")

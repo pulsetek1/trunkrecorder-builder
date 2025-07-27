@@ -58,8 +58,8 @@ if [ -f "/opt/trunk-recorder/trunk-recorder" ] || [ -f "/usr/local/bin/trunk-rec
         echo "⚠️  Trunk Recorder service is currently running"
     fi
     
-    # Prompt for reinstall or config update only
-    read -p "Would you like to reinstall Trunk Recorder? (y/n): " -n 1 -r
+    # Prompt for reconfiguration or config update only
+    read -p "Would you like to reconfigure Trunk Recorder with new settings? (y/n): " -n 1 -r
     echo
     if [[ ! $REPLY =~ ^[Yy]$ ]]; then
         # Update config files only
@@ -194,13 +194,13 @@ EOF
 udevadm control --reload-rules
 udevadm trigger
 
-# Check if trunk-recorder binary exists and prompt for reinstall
+# Check if trunk-recorder binary exists and prompt for rebuild
 if [ -f "$INSTALL_DIR/trunk-recorder" ]; then
     echo "📡 Trunk Recorder binary found at $INSTALL_DIR/trunk-recorder"
     read -p "Do you want to rebuild Trunk Recorder from source? (y/n): " -n 1 -r
     echo
     if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        echo "Skipping Trunk Recorder build..."
+        echo "Using existing Trunk Recorder binary..."
         SKIP_BUILD=true
     fi
 fi

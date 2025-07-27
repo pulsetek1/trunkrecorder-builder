@@ -30,43 +30,68 @@ safe_apt() {
 }
 
 echo "=== Trunk Recorder Master Build System ==="
-echo "This will fetch data from RadioReference.com and deploy a complete system"
+echo "🚀 Complete P25 Radio System Deployment"
+echo
+echo "This script will:"
+echo "  1. Connect to RadioReference.com to download your radio system data"
+echo "  2. Generate optimized RTL-SDR configuration for your frequencies"
+echo "  3. Install and configure Trunk Recorder from source"
+echo "  4. Set up automatic nightly updates from RadioReference"
+echo "  5. Configure upload services (Broadcastify, OpenMHz, RDIOScanner)"
+echo
+echo "⏱️  Estimated time: 20-45 minutes (depending on system)"
+echo "📡 Requirements: 1-3 RTL-SDR dongles, RadioReference premium account"
 echo
 
 # Check if script is being run with root privileges
-# This is required for system configuration and package installation
 if [[ $EUID -ne 0 ]]; then
-   echo "This script must be run as root (use sudo)" 
+   echo "❌ This script must be run as root (use sudo)" 
    exit 1
 fi
 
-# Prompt user for RadioReference.com credentials and system information
-# RR_USERNAME - RadioReference.com account username
-# RR_PASSWORD - RadioReference.com account password 
-# RR_SID - System ID number from RadioReference URL
-# SHORT_NAME - Brief name to identify this system
-echo "RadioReference.com Login Required:"
-read -p "Username: " RR_USERNAME
-read -s -p "Password: " RR_PASSWORD
+echo "📋 Step 1: RadioReference.com Configuration"
+echo "==========================================="
 echo
-read -p "System ID (from URL like /db/sid/12059): " RR_SID
+echo "RadioReference.com is a database of radio frequencies and talkgroups."
+echo "You need a PREMIUM account to download CSV data for your radio system."
+echo
+echo "To find your System ID:"
+echo "  1. Go to RadioReference.com"
+echo "  2. Search for your county/city radio system"
+echo "  3. Look at the URL: /db/sid/XXXXX (XXXXX is your System ID)"
+echo
+
+# Prompt user for RadioReference.com credentials and system information
+read -p "RadioReference.com Username: " RR_USERNAME
+read -s -p "RadioReference.com Password: " RR_PASSWORD
+echo
+read -p "System ID (numbers only, e.g., 12059): " RR_SID
+
+# Validate System ID is numeric
+if ! [[ "$RR_SID" =~ ^[0-9]+$ ]]; then
+    echo "❌ Error: System ID must be numbers only"
+    exit 1
+fi
+
 while true; do
-    read -p "System short name (4-10 characters, e.g., aaco, metro, county): " SHORT_NAME
+    read -p "System short name (4-10 chars, e.g., metro, county): " SHORT_NAME
     if [[ ${#SHORT_NAME} -ge 4 && ${#SHORT_NAME} -le 10 ]]; then
         break
     else
-        echo "Error: Short name must be 4-10 characters long"
+        echo "❌ Error: Short name must be 4-10 characters long"
     fi
 done
-read -p "System abbreviation for categories (e.g., AACO, METRO, COUNTY): " SYSTEM_ABBREV
+read -p "System abbreviation for categories (e.g., METRO, COUNTY): " SYSTEM_ABBREV
 
 echo
-echo "Verifying system information..."
+echo "📋 Step 2: System Verification & Setup"
+echo "====================================="
+echo "🔍 Verifying RadioReference.com credentials and system data..."
+echo
 
 # Install required Python packages for the RadioReference scraper
-echo "Updating package lists..."
+echo "📦 Installing required Python packages..."
 safe_apt update
-echo "Installing required Python packages..."
 safe_apt install -y python3-requests python3-bs4
 
 # Create service user and group if they don't exist
@@ -88,13 +113,22 @@ chown -R trunkrecorder:trunkrecorder /var/lib/trunk-recorder
 
 # Verify that the required config files were generated
 if [ ! -f "config.json" ] || [ ! -f "talkgroup.csv" ]; then
-    echo "✗ Failed to generate configuration files"
+    echo "❌ Failed to generate configuration files"
+    echo "Please check your RadioReference credentials and System ID"
     exit 1
 fi
 
+echo "✅ Configuration files generated successfully"
+
+echo
+echo "📋 Step 3: RadioReference Data Fetch"
+echo "==================================="
+echo "🌐 Connecting to RadioReference.com..."
+echo "📊 This will show your frequency distribution and RTL-SDR requirements"
+echo
+
 # Run the RadioReference data fetcher script to get system config and capture siteid
 cd "$SCRIPT_DIR"
-echo "Connecting to RadioReference.com..."
 python3 fetch-radioreference.py "$RR_USERNAME" "$RR_PASSWORD" "$RR_SID" --shortname "$SHORT_NAME" --abbrev "$SYSTEM_ABBREV" --capture-siteid
 
 # Get the siteid from the generated file
@@ -163,7 +197,11 @@ else
     echo "Continuing without RTL-SDR device configuration"
 fi
 
-echo "✓ Configuration complete - setting up nightly updates..."
+echo
+echo "📋 Step 4: Nightly Update Configuration"
+echo "======================================"
+echo "⏰ Setting up automatic talkgroup updates from RadioReference..."
+echo
 
 # Create nightly update script
 cat > /usr/local/bin/update-talkgroups.sh << 'EOF'
@@ -270,19 +308,35 @@ systemctl enable talkgroup-update.timer
 systemctl start talkgroup-update.timer
 
 echo "✓ Nightly talkgroup updates configured"
-
-# Install Trunk Recorder from source
-echo "Installing Trunk Recorder from source..."
+echo
+echo "📋 Step 5: Trunk Recorder Installation"
+echo "====================================="
+echo "🔨 Installing Trunk Recorder from source..."
+echo "⏱️  This may take 15-30 minutes depending on your system"
+echo
 ./setup.sh
 
 # Display completion message and status
 echo
-echo "=== Master Build Complete ==="
-echo "Your Trunk Recorder system is now fully configured and running!"
+echo "🎉 === Master Build Complete === 🎉"
+echo "Your Trunk Recorder system is now fully configured!"
 echo
-echo "Generated files:"
-echo "  - config.json (with RadioReference data)"
-echo "  - talkgroup.csv (with RadioReference talkgroups)"
+echo "📁 Generated files:"
+echo "  ✓ config.json (optimized RTL-SDR configuration)"
+echo "  ✓ talkgroup.csv (RadioReference talkgroup data)"
+echo "  ✓ siteinfo.json (frequency and site information)"
 echo
-echo "System status:"
+echo "🔄 Automatic features enabled:"
+echo "  ✓ Nightly talkgroup updates from RadioReference"
+echo "  ✓ RAM-based recording storage (SD card protection)"
+echo "  ✓ Automatic cleanup of old recordings"
+echo
+echo "📊 System status:"
 sudo systemctl status trunk-recorder --no-pager || true
+echo
+echo "📚 Next steps:"
+echo "  • Monitor logs: sudo journalctl -u trunk-recorder -f"
+echo "  • Check recordings: ls -la /trunkrecorder/recordings/"
+echo "  • View configuration: cat /etc/trunk-recorder/config.json"
+echo
+echo "🆘 Need help? Check DEPLOYMENT.md or GitHub issues"
