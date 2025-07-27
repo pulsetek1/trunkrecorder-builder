@@ -21,6 +21,8 @@ import csv
 import json
 import sys
 import argparse
+import subprocess
+import os
 from bs4 import BeautifulSoup
 
 def calculate_recorders(device_index, center_freq, bandwidth, all_frequencies, control_channels, total_devices=3):
@@ -300,7 +302,153 @@ def fetch_system_data(session, sid, siteid=None):
     
     return talkgroups, system_info
 
-def generate_config(system_info, shortname="system", upload_config=None):
+def calibrate_rtl_gain(control_channels):
+    """
+    Calibrate optimal gain settings for RTL-SDR devices using control channels
+    
+    Args:
+        control_channels (list): List of control channel frequencies in Hz
+        
+    Returns:
+        dict: Optimal gain settings for each RTL device
+    """
+    print("\n🔧 RTL-SDR Gain Calibration")
+    print("============================")
+    
+    # Stop trunk-recorder to free devices
+    print("Stopping trunk-recorder service...")
+    try:
+        subprocess.run(['sudo', 'systemctl', 'stop', 'trunk-recorder'], check=True, capture_output=True)
+        subprocess.run(['sudo', 'pkill', '-9', '-f', 'trunk-recorder'], capture_output=True)
+    except:
+        pass
+    
+    # Test gains for each device
+    gains = [20, 25, 30, 35, 40, 45]
+    optimal_gains = {}
+    
+    for device in range(min(3, len(control_channels))):
+        freq_hz = control_channels[device] if device < len(control_channels) else control_channels[0]
+        freq_mhz = freq_hz / 1000000
+        
+        print(f"\n📡 Testing RTL={device} ({freq_mhz:.3f} MHz)")
+        print("-" * 40)
+        
+        best_gain = 20
+        best_power = -999
+        
+        for gain in gains:
+            try:
+                # Create frequency range (±1kHz)
+                freq_low = freq_mhz - 0.001
+                freq_high = freq_mhz + 0.001
+                freq_range = f"{freq_low:.6f}M:{freq_high:.6f}M:1k"
+                
+                # Run rtl_power
+                result = subprocess.run([
+                    'rtl_power', '-f', freq_range, '-g', str(gain), 
+                    '-i', '1', '-d', str(device), '-1'
+                ], capture_output=True, text=True, timeout=15)
+                
+                if result.returncode == 0 and result.stdout:
+                    # Parse power value from CSV output
+                    lines = result.stdout.strip().split('\n')
+                    for line in lines:
+                        if ',' in line and not line.startswith('2025'):
+                            continue
+                        parts = line.split(',')
+                        if len(parts) >= 7:
+                            try:
+                                power = float(parts[6].strip())
+                                print(f"Gain {gain:2d}dB: {power:6.2f} dBm")
+                                
+                                if power > best_power and (best_power == -999 or power - best_power < 15):
+                                    best_gain = gain
+                                    best_power = power
+                                break
+                            except ValueError:
+                                continue
+                    else:
+                        print(f"Gain {gain:2d}dB: No signal detected")
+                else:
+                    print(f"Gain {gain:2d}dB: Device error")
+                    
+            except subprocess.TimeoutExpired:
+                print(f"Gain {gain:2d}dB: Timeout")
+            except Exception as e:
+                print(f"Gain {gain:2d}dB: Error - {str(e)}")
+        
+        optimal_gains[device] = best_gain
+        print(f"✓ Optimal gain for RTL={device}: {best_gain}dB")
+    
+    # Restart trunk-recorder
+    try:
+        subprocess.run(['sudo', 'systemctl', 'start', 'trunk-recorder'], capture_output=True)
+    except:
+        pass
+    
+    return optimal_gains
+
+def get_gain_settings(system_info, auto_calibrate=True):
+    """
+    Get gain settings either through auto-calibration or user input
+    
+    Args:
+        system_info (dict): System information including control channels
+        auto_calibrate (bool): Whether to run auto-calibration
+        
+    Returns:
+        dict: Gain settings for each RTL device
+    """
+    if not auto_calibrate or not system_info.get('control_channels'):
+        # Default gains for RTL-SDR v4
+        return {0: 30, 1: 30, 2: 25}
+    
+    print("\n🎯 RTL-SDR Gain Configuration")
+    print("=============================")
+    
+    # Ask user for gain preference
+    while True:
+        choice = input("\nGain setting method:\n  1) Auto-calibrate (recommended)\n  2) Manual entry\n\nSelect option (1-2): ").strip()
+        if choice in ['1', '2']:
+            break
+        print("Please enter 1 or 2")
+    
+    if choice == '1':
+        print("\n🔍 Running automatic gain calibration...")
+        print("This will temporarily stop trunk-recorder and test each RTL device.")
+        
+        confirm = input("\nProceed with auto-calibration? (y/n): ").lower().strip()
+        if confirm.startswith('y'):
+            return calibrate_rtl_gain(system_info['control_channels'])
+        else:
+            print("Using default gains: RTL=0: 30dB, RTL=1: 30dB, RTL=2: 25dB")
+            return {0: 30, 1: 30, 2: 25}
+    
+    # Manual gain entry
+    print("\n📻 Manual Gain Entry")
+    print("RTL-SDR v4 supported gains: 0.0 to 49.6 dB")
+    print("Recommended range: 20-40 dB")
+    
+    gains = {}
+    rtl_count = len(system_info.get('control_channels', [1, 1, 1])[:3])
+    
+    for device in range(rtl_count):
+        while True:
+            try:
+                gain_input = input(f"\nEnter gain for RTL={device} (0-49.6 dB): ").strip()
+                gain = float(gain_input)
+                if 0 <= gain <= 49.6:
+                    gains[device] = int(gain)
+                    break
+                else:
+                    print("Gain must be between 0 and 49.6 dB")
+            except ValueError:
+                print("Please enter a valid number")
+    
+    return gains
+
+def generate_config(system_info, shortname="system", upload_config=None, gain_settings=None):
     """
     Generate trunk-recorder config.json structure
     
@@ -317,7 +465,7 @@ def generate_config(system_info, shortname="system", upload_config=None):
         print("✗ No frequencies found")
         return None
     
-    # Calculate optimal RTL-SDR center frequencies
+    # Calculate optimal RTL-SDR center frequencies with improved distribution
     freqs = sorted(system_info['frequencies'])
     min_freq = min(freqs)
     max_freq = max(freqs)
@@ -329,20 +477,43 @@ def generate_config(system_info, shortname="system", upload_config=None):
     sources = []
     bandwidth = 2400000  # 2.4 MHz bandwidth
     
-    # First calculate all center frequencies
+    # Optimal distribution algorithm - divide frequencies into equal groups
     centers = []
-    for i in range(num_sources):
-        center = min_freq + (span * (i + 0.5) / num_sources)
-        centers.append(int(center))
+    freqs_per_rtl = len(freqs) // num_sources
+    remainder = len(freqs) % num_sources
     
-    # Then create sources with calculated recorders
+    start_idx = 0
+    for i in range(num_sources):
+        # Calculate how many frequencies this RTL should cover
+        group_size = freqs_per_rtl + (1 if i < remainder else 0)
+        end_idx = start_idx + group_size
+        
+        # Get frequency group for this RTL
+        freq_group = freqs[start_idx:end_idx]
+        
+        # Calculate optimal center frequency for this group
+        if freq_group:
+            group_min = min(freq_group)
+            group_max = max(freq_group)
+            center = (group_min + group_max) // 2
+        else:
+            # Fallback to original method if no frequencies in group
+            center = min_freq + (span * (i + 0.5) / num_sources)
+        
+        centers.append(int(center))
+        start_idx = end_idx
+    
+    # Create sources with optimal centers and calculated recorders
     for i in range(num_sources):
         center = centers[i]
+        # Use calibrated gain or default
+        gain = gain_settings.get(i, 30) if gain_settings else 30
+        
         sources.append({
             "center": center,
             "rate": bandwidth,
             "ppm": 0,
-            "gain": 49,
+            "gain": gain,
             "agc": False,
             "digitalRecorders": calculate_recorders(i, center, bandwidth, freqs, system_info['control_channels'], num_sources),
             "analogRecorders": 0,
@@ -705,9 +876,51 @@ def main():
             f.write(system_info['siteid'])
         print(f"✓ Site ID {system_info['siteid']} saved for future updates")
     
+    # Save site information to siteinfo.json
+    if system_info:
+        site_info = {
+            'system_name': basic_info['name'],
+            'system_location': basic_info['location'],
+            'sid': args.sid,
+            'siteid': system_info['siteid'],
+            'nac': system_info['nac'],
+            'control_channels': system_info['control_channels'],
+            'all_frequencies': system_info['frequencies'],
+            'frequency_range': {
+                'min_mhz': min(system_info['frequencies']) / 1000000 if system_info['frequencies'] else 0,
+                'max_mhz': max(system_info['frequencies']) / 1000000 if system_info['frequencies'] else 0,
+                'span_mhz': (max(system_info['frequencies']) - min(system_info['frequencies'])) / 1000000 if system_info['frequencies'] else 0
+            },
+            'rtl_sdr_count': max(1, int(((max(system_info['frequencies']) - min(system_info['frequencies'])) / 1000000 / 2.4) + 1)) if system_info['frequencies'] else 1
+        }
+        
+        # Try to save to /etc/trunk-recorder/ first, fallback to current directory
+        siteinfo_paths = ['/etc/trunk-recorder/siteinfo.json', 'siteinfo.json']
+        
+        for path in siteinfo_paths:
+            try:
+                with open(path, 'w') as f:
+                    json.dump(site_info, f, indent=2)
+                print(f"✓ Site information saved to {path}")
+                break
+            except PermissionError:
+                if path == siteinfo_paths[-1]:  # Last attempt failed
+                    print(f"✗ Could not save site information to any location")
+            except Exception as e:
+                if path == siteinfo_paths[-1]:  # Last attempt failed
+                    print(f"✗ Error saving site information: {e}")
+    
     # Generate config.json (skip if update-only)
     if not args.update_only:
-        config = generate_config(system_info, args.shortname, upload_config)
+        # Get gain settings
+        gain_settings = get_gain_settings(system_info, auto_calibrate=True)
+        
+        if gain_settings:
+            print("\n📻 RTL-SDR Gain Settings:")
+            for device, gain in gain_settings.items():
+                print(f"   RTL={device}: {gain}dB")
+        
+        config = generate_config(system_info, args.shortname, upload_config, gain_settings)
         if config:
             print(f"✓ Found {len(system_info['control_channels'])} control channels")
             print(f"✓ Found {len(system_info['frequencies'])} total frequencies")
@@ -721,6 +934,7 @@ def main():
             print("  - talkgroup.csv (full descriptions)")
             print("  - talkgroup-openmhz.csv (25-char descriptions)")
             print("  - talkgroup-rdio.csv (original RadioReference format)")
+            print("  - siteinfo.json (site and frequency information)")
             print("\n📋 Note: talkgroup-rdio.csv can be imported into RDIOScanner admin site")
             
             if not any(upload_config[svc]['enabled'] for svc in upload_config):
@@ -731,10 +945,11 @@ def main():
             print("✗ Failed to generate config")
             sys.exit(1)
     else:
-        print("\n✓ Talkgroup files updated:")
+        print("\n✓ Files updated:")
         print("  - talkgroup.csv (full descriptions)")
         print("  - talkgroup-openmhz.csv (25-char descriptions)")
         print("  - talkgroup-rdio.csv (original RadioReference format)")
+        print("  - siteinfo.json (site and frequency information)")
 
 if __name__ == "__main__":
     main()
