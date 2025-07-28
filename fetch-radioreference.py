@@ -300,6 +300,76 @@ def fetch_system_data(session, sid, siteid=None):
     
     return talkgroups, system_info
 
+def display_frequency_graph(freqs, centers, bandwidth=2400000):
+    """
+    Display a visual graph of frequency distribution across RTL devices
+    
+    Args:
+        freqs (list): All frequencies in Hz
+        centers (list): RTL center frequencies in Hz  
+        bandwidth (int): RTL bandwidth in Hz
+    """
+    print("\n📊 RTL-SDR Frequency Distribution")
+    print("=" * 50)
+    
+    min_freq = min(freqs) / 1000000
+    max_freq = max(freqs) / 1000000
+    span = max_freq - min_freq
+    
+    # Create frequency scale
+    scale_start = int(min_freq)
+    scale_end = int(max_freq) + 1
+    scale_width = 60
+    
+    print(f"\nFrequency Range: {min_freq:.3f} - {max_freq:.3f} MHz (Span: {span:.3f} MHz)\n")
+    
+    # Draw scale
+    scale_line = ""
+    for i in range(scale_width + 1):
+        freq_pos = scale_start + (scale_end - scale_start) * i / scale_width
+        if i % 10 == 0:
+            scale_line += "|"
+        else:
+            scale_line += "-"
+    print(f"{scale_start:3.0f}" + scale_line[3:-3] + f"{scale_end:3.0f} MHz")
+    
+    # Draw RTL coverage for each device
+    for i, center in enumerate(centers):
+        center_mhz = center / 1000000
+        bw_mhz = bandwidth / 1000000 / 2  # Half bandwidth each side
+        
+        # Calculate positions on scale
+        center_pos = int((center_mhz - scale_start) / (scale_end - scale_start) * scale_width)
+        start_pos = int((center_mhz - bw_mhz - scale_start) / (scale_end - scale_start) * scale_width)
+        end_pos = int((center_mhz + bw_mhz - scale_start) / (scale_end - scale_start) * scale_width)
+        
+        # Create RTL coverage line
+        rtl_line = [" "] * (scale_width + 1)
+        
+        # Mark coverage range
+        for pos in range(max(0, start_pos), min(scale_width + 1, end_pos + 1)):
+            rtl_line[pos] = "═"
+        
+        # Mark center
+        if 0 <= center_pos <= scale_width:
+            rtl_line[center_pos] = "█"
+        
+        # Mark frequencies in this RTL's range
+        for freq in freqs:
+            freq_mhz = freq / 1000000
+            if center_mhz - bw_mhz <= freq_mhz <= center_mhz + bw_mhz:
+                freq_pos = int((freq_mhz - scale_start) / (scale_end - scale_start) * scale_width)
+                if 0 <= freq_pos <= scale_width and rtl_line[freq_pos] != "█":
+                    rtl_line[freq_pos] = "●"
+        
+        rtl_display = "".join(rtl_line)
+        freq_count = sum(1 for f in freqs if center_mhz - bw_mhz <= f/1000000 <= center_mhz + bw_mhz)
+        
+        print(f"RTL={i} [{center_mhz:7.3f} MHz]: {rtl_display} ({freq_count} freqs)")
+    
+    print("\nLegend: █ = RTL Center  ● = Frequency  ═ = Coverage Range")
+    print(f"Each RTL covers ±{bandwidth/2000000:.1f} MHz from center frequency\n")
+
 def generate_config(system_info, shortname="system", upload_config=None):
     """
     Generate trunk-recorder config.json structure
@@ -317,7 +387,7 @@ def generate_config(system_info, shortname="system", upload_config=None):
         print("✗ No frequencies found")
         return None
     
-    # Calculate optimal RTL-SDR center frequencies
+    # Calculate optimal RTL-SDR center frequencies with improved distribution
     freqs = sorted(system_info['frequencies'])
     min_freq = min(freqs)
     max_freq = max(freqs)
@@ -329,13 +399,36 @@ def generate_config(system_info, shortname="system", upload_config=None):
     sources = []
     bandwidth = 2400000  # 2.4 MHz bandwidth
     
-    # First calculate all center frequencies
+    # Optimal distribution algorithm - divide frequencies into equal groups
     centers = []
-    for i in range(num_sources):
-        center = min_freq + (span * (i + 0.5) / num_sources)
-        centers.append(int(center))
+    freqs_per_rtl = len(freqs) // num_sources
+    remainder = len(freqs) % num_sources
     
-    # Then create sources with calculated recorders
+    start_idx = 0
+    for i in range(num_sources):
+        # Calculate how many frequencies this RTL should cover
+        group_size = freqs_per_rtl + (1 if i < remainder else 0)
+        end_idx = start_idx + group_size
+        
+        # Get frequency group for this RTL
+        freq_group = freqs[start_idx:end_idx]
+        
+        # Calculate optimal center frequency for this group
+        if freq_group:
+            group_min = min(freq_group)
+            group_max = max(freq_group)
+            center = (group_min + group_max) // 2
+        else:
+            # Fallback to original method if no frequencies in group
+            center = min_freq + (span * (i + 0.5) / num_sources)
+        
+        centers.append(int(center))
+        start_idx = end_idx
+    
+    # Display frequency distribution graph
+    display_frequency_graph(freqs, centers, bandwidth)
+    
+    # Create sources with optimal centers and calculated recorders
     for i in range(num_sources):
         center = centers[i]
         sources.append({
@@ -705,6 +798,40 @@ def main():
             f.write(system_info['siteid'])
         print(f"✓ Site ID {system_info['siteid']} saved for future updates")
     
+    # Save site information to siteinfo.json
+    if system_info:
+        site_info = {
+            'system_name': basic_info['name'],
+            'system_location': basic_info['location'],
+            'sid': args.sid,
+            'siteid': system_info['siteid'],
+            'nac': system_info['nac'],
+            'control_channels': system_info['control_channels'],
+            'all_frequencies': system_info['frequencies'],
+            'frequency_range': {
+                'min_mhz': min(system_info['frequencies']) / 1000000 if system_info['frequencies'] else 0,
+                'max_mhz': max(system_info['frequencies']) / 1000000 if system_info['frequencies'] else 0,
+                'span_mhz': (max(system_info['frequencies']) - min(system_info['frequencies'])) / 1000000 if system_info['frequencies'] else 0
+            },
+            'rtl_sdr_count': max(1, int(((max(system_info['frequencies']) - min(system_info['frequencies'])) / 1000000 / 2.4) + 1)) if system_info['frequencies'] else 1
+        }
+        
+        # Try to save to /etc/trunk-recorder/ first, fallback to current directory
+        siteinfo_paths = ['/etc/trunk-recorder/siteinfo.json', 'siteinfo.json']
+        
+        for path in siteinfo_paths:
+            try:
+                with open(path, 'w') as f:
+                    json.dump(site_info, f, indent=2)
+                print(f"✓ Site information saved to {path}")
+                break
+            except PermissionError:
+                if path == siteinfo_paths[-1]:  # Last attempt failed
+                    print(f"✗ Could not save site information to any location")
+            except Exception as e:
+                if path == siteinfo_paths[-1]:  # Last attempt failed
+                    print(f"✗ Error saving site information: {e}")
+    
     # Generate config.json (skip if update-only)
     if not args.update_only:
         config = generate_config(system_info, args.shortname, upload_config)
@@ -721,6 +848,7 @@ def main():
             print("  - talkgroup.csv (full descriptions)")
             print("  - talkgroup-openmhz.csv (25-char descriptions)")
             print("  - talkgroup-rdio.csv (original RadioReference format)")
+            print("  - siteinfo.json (site and frequency information)")
             print("\n📋 Note: talkgroup-rdio.csv can be imported into RDIOScanner admin site")
             
             if not any(upload_config[svc]['enabled'] for svc in upload_config):
@@ -731,10 +859,11 @@ def main():
             print("✗ Failed to generate config")
             sys.exit(1)
     else:
-        print("\n✓ Talkgroup files updated:")
+        print("\n✓ Files updated:")
         print("  - talkgroup.csv (full descriptions)")
         print("  - talkgroup-openmhz.csv (25-char descriptions)")
         print("  - talkgroup-rdio.csv (original RadioReference format)")
+        print("  - siteinfo.json (site and frequency information)")
 
 if __name__ == "__main__":
     main()
